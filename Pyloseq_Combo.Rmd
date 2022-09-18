@@ -1,0 +1,360 @@
+---
+title: "MiSeq and Earth Primers PhyloSeq for Run2 Notebook"
+output: html_notebook
+---
+
+# Set Working Directory
+```{r}
+setwd("C:/Users/Jessica/Desktop/Combo/Phyloseq")
+getwd()
+```
+
+# Libraries
+```{r}
+library(phyloseq)
+packageVersion("phyloseq")
+
+# graphics
+library(ggplot2) 
+packageVersion("ggplot2")
+
+# necessary to import the data from Excel file
+library("readxl") 
+packageVersion("readxl")
+
+# filter and reformat data frames
+library("dplyr") 
+packageVersion("dplyr")
+
+# Needed for converting column to row names
+library("tibble") 
+packageVersion("tibble")
+
+library("vegan") 
+packageVersion("vegan")
+
+library("gridExtra")
+packageVersion("gridExtra")
+
+library("microbiome")
+packageVersion("microbiome")
+
+library(knitr)
+```
+
+
+# Load in Data Files
+```{r}
+otu_mat<- read_excel("Phyloseq.xlsx", sheet = "ASV")
+tax_mat<- read_excel("Phyloseq.xlsx", sheet = "Taxa")
+samples_df <- read_excel("Phyloseq.xlsx", sheet = "Meta") 
+
+otu_mat <- otu_mat %>%
+  tibble::column_to_rownames("ASV")
+
+tax_mat <- tax_mat %>% 
+  tibble::column_to_rownames("ASV")
+
+samples_df <- samples_df %>% 
+  tibble::column_to_rownames("Sample") 
+  
+otu_mat <- as.matrix(otu_mat)
+tax_mat <- as.matrix(tax_mat)
+
+OTU = otu_table(otu_mat, taxa_are_rows = TRUE)
+TAX = tax_table(tax_mat)
+samples = sample_data(samples_df)
+```
+
+
+# File Information
+```{r}
+pilot <- phyloseq(OTU, TAX, samples)
+pilot
+```
+
+
+# Total read counts per samples
+```{r}
+reads_sample <- readcount(pilot)
+reads_sample[1:40]
+```
+
+
+# Summarize the contents of Pilot data
+```{r}
+summarize_phyloseq(pilot)
+```
+
+
+# Downsample Reads to Even Depth
+```{r}
+pilot.rare <- rarefy_even_depth(pilot, rngseed = 20200123)
+```
+
+
+# Summarize the contents of Pilot Rarefy data
+```{r}
+summarize_phyloseq(pilot.rare)
+```
+
+
+# Remove Singletons 
+# Same command if we want to remove taxa below X; just change 1 to X (e.g., 5)
+```{r}
+pilot.rare.single <- prune_taxa(taxa_sums(pilot.rare) > 1, pilot.rare)
+summarize_phyloseq(pilot.rare.single)
+```
+
+
+# Plotting Pilot OTUs vs Pilot Rarefied OTUs
+```{r}
+plot(as(otu_table(pilot), "vector"))
+```
+
+
+```{r}
+plot(as(otu_table(pilot.rare), "vector"))
+```
+
+
+# NAs and Phylums with only 1 Hit are Removed
+```{r}
+pilot.rare.single.NA1 <- subset_taxa(pilot.rare.single, !is.na(Phylum) & !Phylum %in% c("Euryarchaeota", "Halobacterota", "NA"))
+phylum.count.NA <- table(tax_table(pilot.rare.single.NA1)[, "Phylum"], exclude = NULL)
+phylum.count.NA
+```
+
+
+# Compute prevalence of each feature, store as data.frame
+# Computer on Pilot to match up with ASV table
+```{r}
+prevdf <- apply(X = otu_table(pilot), 
+                MARGIN = ifelse(taxa_are_rows(pilot), 
+                                yes = 1, no = 2), 
+                FUN = function(x){sum(x > 0)})
+```
+
+
+# Add taxonomy and total read counds to the prevdf
+# Can aid in filtering low count taxa
+```{r}
+prevdf <- data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(pilot),
+                    tax_table(pilot))
+
+prevdf
+```
+
+
+# Compute the total and average prevalances of the features of each phylum
+```{r}
+plyr::ddply(prevdf, "Phylum", function(pilot){cbind(mean(pilot$Prevalence),sum(pilot$Prevalence))})
+```
+
+
+# Write PrevDF table
+```{r}
+write.csv(prevdf, "Prevalence_PilotData_ASVs_Combo")
+```
+
+
+# Filter PrevDF to Remove Phylum with only 1 Hit and NAs
+```{r}
+prevdf.filtered <- pilot.rare.single.NA1
+```
+
+
+# Alpha Diversity
+```{r}
+alpha <-microbiome::alpha(prevdf.filtered, index = "all")
+kable(head(alpha))
+write.csv(alpha, "Alpha_Combo")
+```
+
+
+# Remove Mock Communities for Alpha 
+```{r}
+sampledf.nomock <- subset_samples(samples, !PCR_Name %in% c("22ESC", "22MSC"))
+sample_names(sampledf.nomock)
+```
+
+
+# Alpha observed (richness) 
+```{r}
+richness <- ggplot(sampledf.nomock, aes(x = Location_Type, y = Alpha_Observed)) + 
+  geom_boxplot(aes(color = Location_Type, alpha = 0.1)) +
+  geom_jitter(aes(colour = Location_Type), alpha=0.9, position=position_jitter(w=0.1,h=0.1)) +
+  theme_classic() 
+
+richness <- richness + 
+  facet_wrap(~Primer*Farm)
+
+richness
+
+pdf("Alpha_Observed.pdf")
+plot(richness)
+dev.off()
+```
+
+
+# Alpha shannon diversity
+```{r}
+shannon <- ggplot(sampledf.nomock, aes(x=Location_Type, y=Diversity_Shannon)) + 
+  geom_boxplot(aes(color = Location_Type, alpha = 0.1)) +
+  geom_jitter(aes(colour = Location_Type), alpha=0.9, position=position_jitter(w=0.1,h=0.1)) +
+  theme_classic() 
+
+shannon <- shannon + 
+  facet_wrap(~Primer*Farm)
+
+shannon
+
+pdf("Shannon_Diversity.pdf")
+plot(shannon)
+dev.off()
+```
+
+
+# Subset
+```{r}
+# Subset between primers and Farm 1 only (Percitech)
+earth <- subset(sampledf.nomock, Farm == "Percitech")
+earth <- subset(earth, Primer == "515F_806R")
+miseq <- subset(sampledf.nomock, Farm == "Percitech")
+miseq <- subset(miseq, Primer == "341F_805R")
+```
+
+
+# Is there a significant difference in species richness (Alpha Observed value) based on samples taken from different compartments for EARTH primers within Perchitech (Farm A)?
+```{r}
+attach(earth)
+richness.E <- aov(Alpha_Observed ~ Location_Type)
+summary(richness.E)
+
+richness.tukey.E<- TukeyHSD(richness.E)
+richness.tukey.E
+```
+
+
+# Is there a significant difference in Shannon_Diversity based on samples taken from different compartments for EARTH primers within Perchitech (Farm A)?
+```{r}
+attach(miseq)
+richness.M <- aov(Alpha_Observed ~ Location_Type)
+summary(richness.M)
+
+richness.tukey.M<- TukeyHSD(richness.M)
+richness.tukey.M
+```
+
+
+# Is there a significant difference in Shannon_Diversity based on samples taken from different compartments for MiSeq primers within Perchitech (Farm A)?
+```{r}
+shannon.M <- aov(Diversity_Shannon ~ Location_Type)
+summary(shannon.M)
+
+shannon.tukey.M<- TukeyHSD(shannon.M)
+shannon.tukey.M
+
+detach(miseq)
+```
+
+
+
+
+
+# Load ggpubr library
+```{r}
+library(ggpubr)
+packageVersion("ggpubr")
+```
+
+
+# Comine Alpha Plots into 1 
+```{r}
+alpha.fig <- ggarrange(richness, shannon  + rremove("x.text"),
+              labels = c("A", "B"),
+              ncol = 2, nrow = 1)
+alpha.fig
+```
+
+
+# PCA using MDS/PCoA and Bray Distance measure comparing Primers and Sample Location_Type
+```{r}
+ord <- ordinate(pilot.rare.single.NA1, "MDS", "bray")
+options(max.print=999999)
+print(ord, replace = TRUE)
+
+plot_ordination(pilot.rare.single.NA1, ord, color = "Location_Type", shape = "Primer") +
+  labs(col = "Location_Type", shape = "Primer") +
+  geom_point(size = 3) +
+  theme_minimal()
+
+eigen <- plot_scree(ord, "eigenvalues")
+eigen
+
+pdf("MDS_Eigenvalues_Combo.pdf", paper = "a4r")
+plot(eigen)
+dev.off()
+```
+
+
+# PCA (1vs2) and (1vs3) using MDS and Bray comparing Primers and UniFrac distances
+```{r}
+ord <- ordinate(pilot.rare.single.NA1, "MDS", "bray")
+
+axes1vs2 <- plot_ordination(pilot.rare.single.NA1, ord, axes = c(1,2), color = "Location_Type",
+                  shape = "Primer") +
+  labs(col = "Location_Type", shape = "Primer") +
+                geom_point(size = 3) +
+  theme_classic2()
+
+axes1vs3 <- plot_ordination(pilot.rare.single.NA1, ord, axes = c(1,3), color = "Location_Type",
+                  shape = "Primer") +
+  labs(col = "Location_Type", shape = "Primer") +
+                geom_point(size = 3) +
+  theme_classic2()
+
+axes1vs2
+axes1vs3
+
+pdf("MDS_Axis1vs2.pdf", paper = "a4r")
+plot(axes1vs2)
+dev.off()
+
+pdf("MDS_Axis1vs3.pdf", paper = "a4r")
+plot(axes1vs3)
+dev.off()
+
+# Combine the two figures
+mds.fig <- ggarrange(axes1vs2, axes1vs3 + rremove("x.text"),
+              labels = c("A", "B"),
+              ncol = 2, nrow = 1)
+mds.fig
+
+pdf("MDS_Combined.pdf", paper = "a4r")
+plot(mds.fig)
+dev.off()
+```
+
+
+# Two-Way permutation multivariate analysis of variance (Two-way PERMANOVA) (vegan package)
+# Are the communities between farm different?
+```{r}
+#library(vegan)
+pseq.rel <- microbiome::transform(pilot.rare.single.NA1, "compositional")
+otu <- abundances(pseq.rel)
+meta <- meta(pseq.rel)
+
+permanova <- adonis(t(otu) ~ Farm,
+               data = meta, permutations=999, method = "bray")
+
+permanova
+
+print(as.data.frame(permanova$aov.tab)["Farm", "Pr(>F)"])
+dist <- vegdist(t(otu))
+anova(betadisper(dist, meta$Farm))
+```
+
+
+
