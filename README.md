@@ -16,6 +16,6 @@ Post-processing of the data obtained from Step 1 (Phyloseq.xlsx): Pyloseq_Combo.
 - Calculates Alpha observed (richness)
 - Calculates Alpha Shannon diversity
 - Tests for significant difference in species diversity
-- Plots the Alpha diverstities
+- Plots the Alpha diversities
 - Plots MDS
 - Performs two-way PERMANOVA
