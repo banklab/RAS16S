@@ -13,7 +13,7 @@ Post-processing of the data obtained from Step 1 (Phyloseq.xlsx): **Pyloseq_Comb
 - Downsamples Reads to Even Depth
 - Removes Singletons
 - Computes the total and average prevalances of the features of each phylum
-- Removes Phylae with only 1 Hit and NAs
+- Removes phyla with only 1 Hit and NAs
 - Calculates Alpha diversity
 - Calculates Alpha observed (richness)
 - Calculates Alpha Shannon diversity
