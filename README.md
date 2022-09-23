@@ -1,6 +1,8 @@
 # RAS16S
 Repository of pilot microbial study
 
+MiSeq analysis:
+
 Step 1:
 For the initial processing of the fasta files: DADA2_Combo.R
 Takes as an input the demultiplexed fasta files. Outputs excel tables with ASVs and taxa
@@ -19,3 +21,5 @@ Post-processing of the data obtained from Step 1 (Phyloseq.xlsx): Pyloseq_Combo.
 - Plots the Alpha diversities
 - Plots MDS
 - Performs two-way PERMANOVA
+
+Analysis of PacBio data: dada2_PacBio_GitHub.R 
